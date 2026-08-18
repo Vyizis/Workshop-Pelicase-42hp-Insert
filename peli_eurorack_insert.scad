@@ -1,7 +1,7 @@
 // Peli-style case insert for 42HP / 3U Eurorack
 // Case marked: MG 235x165x45 (base)
-// Outer profile shrinks at the floor to clear the case's floor-to-wall fillet
-// (+ light draft). Print foot-down on A1 Mini; two halves.
+// Outer profile shrinks at the floor to clear the case's floor-to-wall fillet.
+// Print deck-down (top surface on the bed) on A1 Mini; two halves.
 //
 // OpenSCAD Customizer:
 //   part = "left" | "right" | "both" | "assembled"
@@ -22,8 +22,6 @@ draft_inset = 1.0;
 
 /* [Frame] */
 wall = 2.4;
-foot_t = 2.0;
-foot_w = 8.0;
 deck_t = 2.8;
 insert_h = 42;
 rail_h = 8.0;
@@ -31,7 +29,6 @@ rail_h = 8.0;
 // less material toward the bay (PCB clearance), more toward the panel edge.
 rail_bay = 4.3;            // from slot centre toward module bay (~1.35mm nut wall)
 rail_outer = 6.0;          // from slot centre toward panel edge
-spine_w = 3.2;
 
 /* [Eurorack — Doepfer / standard 3U] */
 hp = 5.08;
@@ -40,7 +37,7 @@ panel_l = hp_count * hp;   // 213.36 — nominal 42HP
 panel_h = 128.5;           // standard 3U panel height
 hole_inset = 3.0;          // hole centre from panel top/bottom edge
 panel_t = 1.6;
-module_drop = 0.5;         // seat panel this much below deck
+module_drop = 0;           // 0 = panel flush with deck; pocket depth = panel_t
 panel_clear = 0.55;
 panel_corner_r = 1.0;
 
@@ -55,7 +52,10 @@ slot_lip = 1.2;            // solid retainer over the nut
 pin_d = 2.0;
 pin_clear = 0.15;
 join_boss_x = 16;
-join_boss_h = 10;
+join_boss_y = 8;
+join_boss_h = 10;          // requested height; clamped below so bosses never poke through the deck
+// Bosses live in the outer rim band (outboard of the panel pocket),
+// never on the rail centreline — that blocked nut loading at the split.
 
 /* [Quality] */
 $fn = 64;
@@ -96,7 +96,16 @@ echo(str("Rail hole CC: ", rail_hole_cc, " (holes ", hole_inset, " from edge)"))
 echo(str("Rail section: bay ", rail_bay, " / outer ", rail_outer,
          " (nut side wall ", rail_bay - nut_cavity_w / 2, " mm)"));
 echo(str("Module drop: ", module_drop, " mm, slot lip: ", slot_lip, " mm"));
+echo(str("Panel pocket depth (surface → rail top): ", insert_h - rail_top_z, " mm (panel_t ", panel_t, ")"));
 echo(str("Half length at rim: ", outer_l / 2, " mm"));
+
+// Join bosses sit in the rim band outboard of the panel pocket (clear of T-slots)
+join_boss_ys = [
+    -(panel_pocket_w / 2 + join_boss_y / 2 + 0.2),
+     (panel_pocket_w / 2 + join_boss_y / 2 + 0.2)
+];
+// Never let bosses protrude above the deck (was +0.4mm when module_drop=0)
+join_boss_h_eff = min(join_boss_h, insert_h - rail_z);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -107,16 +116,6 @@ module rounded_rect(size, r) {
     rr = min(r, l / 2 - 0.01, w / 2 - 0.01);
     offset(r = rr)
         square([l - 2 * rr, w - 2 * rr], center = true);
-}
-
-module frame_ring_2d(outer_size, inner_shrink, r) {
-    difference() {
-        rounded_rect(outer_size, r);
-        rounded_rect(
-            [outer_size[0] - 2 * inner_shrink, outer_size[1] - 2 * inner_shrink],
-            max(0.4, r - inner_shrink)
-        );
-    }
 }
 
 // Cross-section of the case-fit outline at height z (0 = floor).
@@ -176,18 +175,8 @@ module t_slot_rail(length, bay_dir) {
     }
 }
 
-module top_deck() {
-    // Frame only — never build a full plate over the bay (avoids a leftover skin)
-    translate([0, 0, insert_h - deck_t])
-        linear_extrude(height = deck_t)
-            difference() {
-                rounded_rect([outer_l, outer_w], outer_r);
-                rounded_rect([panel_pocket_l, panel_pocket_w], panel_corner_r);
-            }
-}
-
-// Solid outer rim: full case-fit loft minus the panel pocket.
-// Only the middle-front access pocket stays open (no hollow gallery cells).
+// Outer frame: fillet loft + walls + deck as one solid (no lip on short ends).
+// Front access stays mid-height — same as before the lip tweaks.
 module solid_outer_rim() {
     win_z = base_fillet_r + 2;
     win_h = max(8, wall_inner_h - win_z - 2);
@@ -195,28 +184,28 @@ module solid_outer_rim() {
     front_depth = (outer_w - panel_pocket_w) / 2 + wall;
 
     difference() {
-        fit_loft_solid(wall_inner_h, 0);
+        union() {
+            fit_loft_solid(base_fillet_r, 0);
+            translate([0, 0, base_fillet_r])
+                linear_extrude(height = insert_h - base_fillet_r)
+                    rounded_rect([outer_l, outer_w], outer_r);
+        }
 
-        // Punch the module bay fully through the rim (overlap past both ends)
+        // Module bay through the full height (rim + deck)
         translate([0, 0, -1])
-            linear_extrude(height = wall_inner_h + 2)
+            linear_extrude(height = insert_h + 2)
                 rounded_rect([panel_pocket_l, panel_pocket_w], panel_corner_r);
 
-        // Middle-front access pocket only
+        // Middle-front access pocket only (unchanged)
         translate([0, -(outer_w / 2 - front_depth / 2), win_z + win_h / 2])
             cube([front_pocket_w, front_depth + 1, win_h], center = true);
     }
 }
 
-module rail_spine(y) {
-    translate([0, y, rail_z / 2])
-        cube([rail_len, spine_w, rail_z], center = true);
-}
-
 module pin_holes() {
     d = pin_d + pin_clear;
-    z = join_boss_h / 2;
-    for (y = [rail_y0, rail_y1])
+    z = rail_z + join_boss_h_eff / 2;
+    for (y = join_boss_ys)
         translate([0, y, z])
             rotate([0, 90, 0])
                 cylinder(d = d, h = join_boss_x + 2, center = true);
@@ -225,43 +214,37 @@ module pin_holes() {
 module insert_body() {
     difference() {
         union() {
-            // Foot follows the reduced floor outline (sits inside the fillet)
-            linear_extrude(height = foot_t)
-                frame_ring_2d([bottom_l, bottom_w], foot_w, bottom_r);
-
-            // Solid outer rim (only middle-front access pocket left open)
+            // Solid outer rim + deck (only middle-front access pocket left open)
             solid_outer_rim();
-
-            top_deck();
 
             translate([0, rail_y0, rail_z]) t_slot_rail(rail_len, +1); // bay toward +Y
             translate([0, rail_y1, rail_z]) t_slot_rail(rail_len, -1); // bay toward -Y
 
-            rail_spine(rail_y0);
-            rail_spine(rail_y1);
-
-            // End ties between rails
+            // End ties fully in the end-wall band — must not protrude into the pocket
+            // (that protrusion was the short-end lip)
+            end_tie_w = rail_hole_cc - 2 * rail_bay;
             for (sx = [-1, 1])
-                translate([sx * (rail_span / 2 + wall / 2), 0, rail_z + rail_h / 2])
-                    cube([wall, rail_hole_cc + rail_w, rail_h], center = true);
+                translate([sx * (panel_pocket_l / 2 + wall / 2), 0, rail_z + rail_h / 2])
+                    cube([wall, end_tie_w, rail_h], center = true);
 
-            for (y = [rail_y0, rail_y1])
-                translate([0, y, foot_t / 2])
-                    cube([rail_len, spine_w, foot_t], center = true);
-
-            for (x = [-rail_span * 0.35, -rail_span * 0.12, rail_span * 0.12, rail_span * 0.35])
-                translate([x, 0, foot_t / 2])
-                    cube([spine_w, rail_hole_cc, foot_t], center = true);
-
-            for (y = [rail_y0, rail_y1])
-                translate([0, y, join_boss_h / 2])
-                    cube([join_boss_x, rail_w, join_boss_h], center = true);
-
-            translate([0, 0, foot_t / 2])
-                cube([join_boss_x, rail_hole_cc, foot_t], center = true);
+            // Join bosses in the rim at the split — clear of the nut galleries
+            for (y = join_boss_ys)
+                translate([0, y, rail_z + join_boss_h_eff / 2])
+                    cube([join_boss_x, join_boss_y, join_boss_h_eff], center = true);
         }
 
         pin_holes();
+
+        // Belt-and-braces: shave any remaining short-end lip inside the pocket
+        // (between the rails only — does not touch the T-slots)
+        short_lip_clear = 1.0;
+        for (sx = [-1, 1])
+            translate([sx * (panel_pocket_l / 2 - short_lip_clear / 2), 0, insert_h / 2])
+                cube([
+                    short_lip_clear,
+                    max(0.1, rail_hole_cc - 2 * rail_bay - 0.4),
+                    insert_h + 2
+                ], center = true);
     }
 }
 
@@ -277,8 +260,10 @@ module half_body(which) {
 }
 
 module printable(which) {
-    translate([which == "left" ? outer_l / 4 : -outer_l / 4, 0, 0])
-        half_body(which);
+    // Deck on the bed for efficient printing
+    translate([which == "left" ? outer_l / 4 : -outer_l / 4, 0, insert_h])
+        rotate([180, 0, 0])
+            half_body(which);
 }
 
 if (part == "left") {
@@ -289,6 +274,7 @@ if (part == "left") {
     translate([0, -(outer_w / 2 + 10), 0]) printable("left");
     translate([0,  (outer_w / 2 + 10), 0]) printable("right");
 } else {
+    // Assembled preview stays in case orientation (deck up)
     color("#4a6d8c") half_body("left");
     color("#8ca8c0") half_body("right");
 }
