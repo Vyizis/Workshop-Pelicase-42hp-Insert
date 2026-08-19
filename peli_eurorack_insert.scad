@@ -28,7 +28,7 @@ rail_h = 8.0;
 // Rail is asymmetric about the screw/nut centre (hole line):
 // less material toward the bay (PCB clearance), more toward the panel edge.
 rail_bay = 4.3;            // from slot centre toward module bay (~1.35mm nut wall)
-rail_outer = 6.0;          // from slot centre toward panel edge
+rail_outer = 7.5;          // from slot centre toward panel edge / rim (was 6.0)
 
 /* [Eurorack — Doepfer / standard 3U] */
 hp = 5.08;
@@ -47,15 +47,6 @@ nut_cavity_h = 2.6;
 screw_slot = 3.4;          // M3 clearance — ~1.25mm nut overlap each side
 slot_lip = 1.2;            // solid retainer over the nut
 
-
-/* [Split join — filament / dowel pins] */
-pin_d = 2.0;
-pin_clear = 0.15;
-join_boss_x = 16;
-join_boss_y = 8;
-join_boss_h = 10;          // requested height; clamped below so bosses never poke through the deck
-// Bosses live in the outer rim band (outboard of the panel pocket),
-// never on the rail centreline — that blocked nut loading at the split.
 
 /* [Quality] */
 $fn = 64;
@@ -98,14 +89,6 @@ echo(str("Rail section: bay ", rail_bay, " / outer ", rail_outer,
 echo(str("Module drop: ", module_drop, " mm, slot lip: ", slot_lip, " mm"));
 echo(str("Panel pocket depth (surface → rail top): ", insert_h - rail_top_z, " mm (panel_t ", panel_t, ")"));
 echo(str("Half length at rim: ", outer_l / 2, " mm"));
-
-// Join bosses sit in the rim band outboard of the panel pocket (clear of T-slots)
-join_boss_ys = [
-    -(panel_pocket_w / 2 + join_boss_y / 2 + 0.2),
-     (panel_pocket_w / 2 + join_boss_y / 2 + 0.2)
-];
-// Never let bosses protrude above the deck (was +0.4mm when module_drop=0)
-join_boss_h_eff = min(join_boss_h, insert_h - rail_z);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -202,15 +185,6 @@ module solid_outer_rim() {
     }
 }
 
-module pin_holes() {
-    d = pin_d + pin_clear;
-    z = rail_z + join_boss_h_eff / 2;
-    for (y = join_boss_ys)
-        translate([0, y, z])
-            rotate([0, 90, 0])
-                cylinder(d = d, h = join_boss_x + 2, center = true);
-}
-
 module insert_body() {
     difference() {
         union() {
@@ -221,22 +195,13 @@ module insert_body() {
             translate([0, rail_y1, rail_z]) t_slot_rail(rail_len, -1); // bay toward -Y
 
             // End ties fully in the end-wall band — must not protrude into the pocket
-            // (that protrusion was the short-end lip)
             end_tie_w = rail_hole_cc - 2 * rail_bay;
             for (sx = [-1, 1])
                 translate([sx * (panel_pocket_l / 2 + wall / 2), 0, rail_z + rail_h / 2])
                     cube([wall, end_tie_w, rail_h], center = true);
-
-            // Join bosses in the rim at the split — clear of the nut galleries
-            for (y = join_boss_ys)
-                translate([0, y, rail_z + join_boss_h_eff / 2])
-                    cube([join_boss_x, join_boss_y, join_boss_h_eff], center = true);
         }
 
-        pin_holes();
-
-        // Belt-and-braces: shave any remaining short-end lip inside the pocket
-        // (between the rails only — does not touch the T-slots)
+        // Shave any short-end lip inside the pocket (between the rails only)
         short_lip_clear = 1.0;
         for (sx = [-1, 1])
             translate([sx * (panel_pocket_l / 2 - short_lip_clear / 2), 0, insert_h / 2])
